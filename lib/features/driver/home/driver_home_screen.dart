@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/api.dart';
 import '../../../core/format.dart';
 import '../../../core/theme.dart';
 import '../../../core/widgets.dart';
+import '../../../data/repository.dart';
 import '../../../models/models.dart';
 import '../../../state/auth.dart';
 import '../../../state/driver.dart';
@@ -36,6 +38,7 @@ class DriverHomeScreen extends ConsumerWidget {
               _ErrorBanner(session: session),
             ],
             const SizedBox(height: 16),
+            const _PendingHandovers(),
             ...orders.when(
               data: (list) => [
                 if (list.isNotEmpty) ...[
@@ -317,6 +320,145 @@ class _Stat extends StatelessWidget {
         children: [
           Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
           Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+        ],
+      );
+}
+
+/// متاجر سجّلت إنها استلمت كاش من السائق — يؤكد أو يرفض.
+class _PendingHandovers extends ConsumerWidget {
+  const _PendingHandovers();
+
+  Future<void> _confirm(BuildContext context, WidgetRef ref, SettlementRequest h) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تأكيد التسليم'),
+        content: Text('سلّمت ${h.storeName ?? 'المتجر'} مبلغ ${money(h.amount)}؟\n'
+            'المبلغ هيتخصم من الكاش اللي معاك ومن المطلوب منك للمنصة.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('رجوع')),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(100, 44), backgroundColor: AppColors.success),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('نعم، سلّمته'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    await _run(context, ref, () => ref.read(repositoryProvider).confirmHandover(h.id), 'تم تأكيد التسليم.');
+  }
+
+  Future<void> _reject(BuildContext context, WidgetRef ref, SettlementRequest h) async {
+    final reason = await showDialog<String>(context: context, builder: (_) => const _RejectDialog());
+    if (reason == null || !context.mounted) return;
+    await _run(context, ref, () => ref.read(repositoryProvider).rejectHandover(h.id, reason), 'تم الرفض وإبلاغ المتجر.');
+  }
+
+  Future<void> _run(BuildContext context, WidgetRef ref, Future<void> Function() action, String done) async {
+    try {
+      await action();
+      if (context.mounted) showMessage(context, done);
+    } on ApiException catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+    ref.invalidate(pendingHandoversProvider);
+    ref.invalidate(earningsProvider);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final list = ref.watch(pendingHandoversProvider).value ?? const <SettlementRequest>[];
+    if (list.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final h in list)
+            Card(
+              color: AppColors.warning.withValues(alpha: 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: AppColors.warning),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.payments_outlined, color: AppColors.warning),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('${h.storeName ?? 'متجر'} استلم منك ${money(h.amount)}؟',
+                              style: const TextStyle(fontWeight: FontWeight.w800)),
+                        ),
+                      ],
+                    ),
+                    if (h.notes?.isNotEmpty == true)
+                      Padding(padding: const EdgeInsets.only(top: 4), child: Text(h.notes!, style: const TextStyle(color: AppColors.muted))),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44), backgroundColor: AppColors.success),
+                            onPressed: () => _confirm(context, ref, h),
+                            child: const Text('تأكيد'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, minimumSize: const Size.fromHeight(44)),
+                            onPressed: () => _reject(context, ref, h),
+                            child: const Text('لم أسلّم'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RejectDialog extends StatefulWidget {
+  const _RejectDialog();
+
+  @override
+  State<_RejectDialog> createState() => _RejectDialogState();
+}
+
+class _RejectDialogState extends State<_RejectDialog> {
+  final _reason = TextEditingController(text: 'لم أسلّم هذا المبلغ');
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('رفض التسليم'),
+        content: TextField(controller: _reason, autofocus: true, decoration: const InputDecoration(hintText: 'السبب (يظهر للمتجر)')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('رجوع')),
+          TextButton(
+            onPressed: () {
+              if (_reason.text.trim().isNotEmpty) Navigator.pop(context, _reason.text.trim());
+            },
+            child: const Text('رفض'),
+          ),
         ],
       );
 }

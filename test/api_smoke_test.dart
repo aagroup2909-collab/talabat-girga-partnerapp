@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:talabat_girga_partner/core/api.dart';
 import 'package:talabat_girga_partner/core/config.dart';
 import 'package:talabat_girga_partner/data/repository.dart';
+import 'package:talabat_girga_partner/models/models.dart';
 import 'package:talabat_girga_partner/state/auth.dart';
 
 const _password = String.fromEnvironment('DEMO_PASSWORD');
@@ -78,6 +79,68 @@ void main() {
 
     final now = DateTime.now();
     await repo.salesSummary(from: DateTime(now.year, now.month), to: now);
+  }, skip: !local);
+
+  test('vendor manages menu, hours and settlements', () async {
+    final c = await _container();
+    final repo = c.read(repositoryProvider);
+    await c.read(authProvider.notifier).signIn(await repo.login('01111111111', _password));
+
+    // قسم + منتج بإضافات ثم تعديل ثم حذف
+    final category = await repo.saveCategory(name: 'اختبار ${DateTime.now().millisecondsSinceEpoch}');
+    final created = await repo.saveProduct(
+      name: 'منتج اختبار',
+      description: 'وصف',
+      price: 50,
+      comparePrice: 60,
+      categoryId: category.id,
+      unit: ProductUnit.piece,
+      isAvailable: true,
+      isActive: false,
+      options: [
+        ProductOptionData(name: 'الحجم', isRequired: true, values: [OptionValueData(name: 'صغير'), OptionValueData(name: 'كبير', price: 15)]),
+        ProductOptionData(name: 'إضافات', isMultiple: true, maxSelections: 2, values: [OptionValueData(name: 'جبنة', price: 10)]),
+      ],
+    );
+    expect(created.categoryId, category.id);
+    expect(created.isActive, isFalse);
+    expect(created.editableOptions.length, 2);
+    expect(created.editableOptions.first.values.last.price, 15);
+    expect(created.editableOptions.last.isMultiple, isTrue);
+
+    final updated = await repo.saveProduct(
+      id: created.id,
+      name: 'منتج اختبار 2',
+      price: 55,
+      unit: ProductUnit.kg,
+      isAvailable: false,
+      isActive: false,
+      options: const [],
+    );
+    expect(updated.name, 'منتج اختبار 2');
+    expect(updated.unit, ProductUnit.kg);
+    expect(updated.categoryId, isNull);
+    expect(updated.editableOptions, isEmpty);
+
+    await repo.deleteProduct(created.id);
+    await repo.setCategoryActive(category.id, false);
+    await repo.deleteCategory(category.id);
+
+    // مواعيد العمل: حفظ نفس المواعيد كما هي
+    final hours = await repo.storeHours();
+    expect(hours.length, 7);
+    await repo.saveStoreHours(hours);
+
+    // التسويات
+    final finance = await repo.finance();
+    expect(finance.methods, isNotEmpty);
+    if (finance.payoutAvailable >= 1) {
+      final r = await repo.createSettlementRequest(kind: SettlementKind.payoutRequest, amount: 1, method: 'cash');
+      expect(r.isPending, isTrue);
+      await repo.cancelSettlementRequest(r.id);
+    }
+    await repo.settlementRequests();
+    await repo.statement();
   }, skip: !local);
 
   test('wrong password and customer number give the server message in errors.phone', () async {

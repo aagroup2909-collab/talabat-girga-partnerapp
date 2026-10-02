@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/format.dart';
 import '../../../core/theme.dart';
@@ -129,7 +130,8 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
           child: ListTile(
             leading: Icon(Icons.account_balance_wallet_outlined, color: s.balance >= 0 ? AppColors.success : AppColors.danger),
             title: const Text('رصيدك مع المنصة', style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text(s.balance >= 0 ? 'مستحق لك من المنصة' : 'مطلوب منك توريده للمنصة'),
+            subtitle: Text(s.balance >= 0 ? 'مستحق لك من المنصة — اضغط للتسوية' : 'مطلوب منك توريده للمنصة — اضغط للتسوية'),
+            onTap: () => context.push('/vendor/finance'),
             trailing: Text(
               money(s.balance.abs()),
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: s.balance >= 0 ? AppColors.success : AppColors.danger),

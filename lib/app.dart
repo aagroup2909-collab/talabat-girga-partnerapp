@@ -16,10 +16,14 @@ import 'features/driver/info/approval_screen.dart';
 import 'features/driver/info/driver_info_screen.dart';
 import 'features/driver/order/active_order_screen.dart';
 import 'features/support/support_screens.dart';
+import 'features/vendor/finance/finance_screen.dart';
+import 'features/vendor/menu/categories_screen.dart';
+import 'features/vendor/menu/product_form_screen.dart';
 import 'features/vendor/orders/vendor_order_screen.dart';
 import 'features/vendor/orders/vendor_orders_screen.dart';
 import 'features/vendor/products/products_screen.dart';
 import 'features/vendor/sales/sales_screen.dart';
+import 'features/vendor/store/hours_screen.dart';
 import 'models/models.dart';
 import 'state/auth.dart';
 import 'state/driver.dart';
@@ -89,6 +93,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [GoRoute(path: '/vendor/account', builder: (_, _) => const AccountScreen())]),
         ],
       ),
+      GoRoute(path: '/vendor/finance', builder: (_, _) => const FinanceScreen()),
+      GoRoute(path: '/vendor/hours', builder: (_, _) => const HoursScreen()),
+      GoRoute(path: '/vendor/categories', builder: (_, _) => const CategoriesScreen()),
+      GoRoute(path: '/vendor/product/new', builder: (_, _) => const ProductFormScreen()),
+      GoRoute(path: '/vendor/product/edit', builder: (_, s) => ProductFormScreen(product: s.extra as Product?)),
       GoRoute(
         path: '/vendor/order/:id',
         builder: (_, s) => VendorOrderScreen(orderId: int.parse(s.pathParameters['id']!)),

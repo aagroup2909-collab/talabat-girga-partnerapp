@@ -237,3 +237,10 @@ final driverOrderProvider = FutureProvider.autoDispose.family<Order, int>((ref, 
 });
 
 final earningsProvider = FutureProvider.autoDispose<Earnings>((ref) => ref.watch(repositoryProvider).earnings());
+
+/// كاش سجّل متجر إنه استلمه من السائق وبانتظار تأكيده — يتحدث كل 30 ثانية أثناء العرض.
+final pendingHandoversProvider = FutureProvider.autoDispose<List<SettlementRequest>>((ref) async {
+  final timer = Timer(const Duration(seconds: 30), ref.invalidateSelf);
+  ref.onDispose(timer.cancel);
+  return ref.watch(repositoryProvider).pendingHandovers();
+});

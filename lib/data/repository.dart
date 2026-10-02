@@ -169,6 +169,121 @@ class Repository {
   Future<Product> setProductAvailable(int id, bool available) async =>
       Product.fromJson((await _api.post('/vendor/products/$id/availability', {'is_available': available}))['data']);
 
+  // ---------- التاجر: إدارة المنيو ----------
+  Future<Category> saveCategory({int? id, required String name, bool? isActive}) async {
+    final body = {'name': name, 'is_active': ?isActive};
+    final res = id == null ? await _api.post('/vendor/categories', body) : await _api.put('/vendor/categories/$id', body);
+    return Category.fromJson(res['data']);
+  }
+
+  Future<void> setCategoryActive(int id, bool active) => _api.put('/vendor/categories/$id', {'is_active': active});
+
+  Future<void> deleteCategory(int id) => _api.delete('/vendor/categories/$id');
+
+  /// إنشاء أو تعديل منتج (multipart). الإضافات تُستبدل بالكامل بما يُرسل.
+  Future<Product> saveProduct({
+    int? id,
+    required String name,
+    String? description,
+    required double price,
+    double? comparePrice,
+    int? categoryId,
+    required ProductUnit unit,
+    required bool isAvailable,
+    required bool isActive,
+    required List<ProductOptionData> options,
+    String? imagePath,
+  }) async {
+    final form = FormData();
+    void field(String k, Object? v) => form.fields.add(MapEntry(k, v == null ? '' : (v is bool ? (v ? '1' : '0') : '$v')));
+
+    field('name', name);
+    field('description', description);
+    field('price', price);
+    field('compare_price', comparePrice);
+    field('category_id', categoryId);
+    field('unit', unit.name);
+    field('is_available', isAvailable);
+    field('is_active', isActive);
+
+    if (options.isEmpty) {
+      // قيمة فارغة = حذف كل الإضافات (السيرفر يحوّلها null).
+      field('options', null);
+    }
+    for (final (i, o) in options.indexed) {
+      field('options[$i][name]', o.name);
+      field('options[$i][type]', o.isMultiple ? 'multiple' : 'single');
+      field('options[$i][is_required]', o.isRequired);
+      if (o.isMultiple && o.maxSelections != null) field('options[$i][max_selections]', o.maxSelections);
+      for (final (j, v) in o.values.indexed) {
+        field('options[$i][values][$j][name]', v.name);
+        field('options[$i][values][$j][price]', v.price);
+        field('options[$i][values][$j][is_available]', v.isAvailable);
+      }
+    }
+    if (imagePath != null) {
+      form.files.add(MapEntry('image', await MultipartFile.fromFile(imagePath, filename: 'product.jpg')));
+    }
+
+    final res = await _api.post(id == null ? '/vendor/products' : '/vendor/products/$id', form);
+    return Product.fromJson(res['data']);
+  }
+
+  Future<void> deleteProduct(int id) => _api.delete('/vendor/products/$id');
+
+  // ---------- التاجر: مواعيد العمل ----------
+  Future<List<StoreHour>> storeHours() async {
+    final data = (await _api.get('/vendor/store'))['data'] as Map;
+    final hours = (data['hours'] as List? ?? const []).cast<Map<String, dynamic>>().map(StoreHour.fromJson).toList();
+    // نكمل الأيام الناقصة حتى تظهر الأسبوع كامل.
+    return [
+      for (var d = 0; d < 7; d++) hours.where((h) => h.dayOfWeek == d).firstOrNull ?? StoreHour(dayOfWeek: d, isClosed: true),
+    ];
+  }
+
+  Future<void> saveStoreHours(List<StoreHour> hours) =>
+      _api.put('/vendor/store/hours', {'hours': hours.map((h) => h.toJson()).toList()});
+
+  // ---------- التاجر: التسويات ----------
+  Future<FinanceSummary> finance() async => FinanceSummary.fromJson((await _api.get('/vendor/finance') as Map).cast<String, dynamic>());
+
+  Future<Paged<SettlementRequest>> settlementRequests({int page = 1}) async =>
+      _paged(await _api.get('/vendor/settlement-requests', query: {'page': page}), SettlementRequest.fromJson);
+
+  Future<SettlementRequest> createSettlementRequest({
+    required SettlementKind kind,
+    required double amount,
+    int? driverId,
+    String? method,
+    String? reference,
+    String? notes,
+    String? receiptPath,
+  }) async {
+    final form = FormData.fromMap({
+      'kind': kind.key,
+      'amount': amount,
+      'driver_id': ?driverId,
+      'method': ?method,
+      if (reference != null && reference.isNotEmpty) 'reference': reference,
+      if (notes != null && notes.isNotEmpty) 'notes': notes,
+      if (receiptPath != null) 'receipt': await MultipartFile.fromFile(receiptPath, filename: 'receipt.jpg'),
+    });
+    return SettlementRequest.fromJson((await _api.post('/vendor/settlement-requests', form))['data']);
+  }
+
+  Future<void> cancelSettlementRequest(int id) => _api.post('/vendor/settlement-requests/$id/cancel');
+
+  Future<Paged<Transaction>> statement({int page = 1}) async =>
+      _paged(await _api.get('/vendor/reports/statement', query: {'page': page}), Transaction.fromJson);
+
+  // ---------- السائق: تسليم الكاش للمتاجر ----------
+  Future<List<SettlementRequest>> pendingHandovers() async =>
+      _data(await _api.get('/driver/handovers', query: {'status': 'pending'})).map(SettlementRequest.fromJson).toList();
+
+  Future<void> confirmHandover(int id) => _api.post('/driver/handovers/$id/confirm');
+
+  Future<void> rejectHandover(int id, String reason) => _api.post('/driver/handovers/$id/reject', {'reason': reason});
+
   // ---------- التاجر: التقارير ----------
   Future<SalesSummary> salesSummary({required DateTime from, required DateTime to}) async {
     String day(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';

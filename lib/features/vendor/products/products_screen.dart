@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/format.dart';
 import '../../../core/theme.dart';
@@ -10,8 +11,7 @@ import '../../../data/repository.dart';
 import '../../../models/models.dart';
 import '../../../state/vendor.dart';
 
-/// المنتجات: بحث + أقسام + زر متوفر/غير متوفر لكل منتج.
-/// إضافة وتعديل المنتجات من لوحة التاجر على الويب.
+/// المنتجات: بحث + أقسام + زر متوفر/غير متوفر، والضغط على المنتج يفتح التعديل.
 class ProductsScreen extends ConsumerStatefulWidget {
   const ProductsScreen({super.key});
 
@@ -60,11 +60,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
       _error = null;
     });
     try {
-      final res = await ref.read(repositoryProvider).products(
-            categoryId: _categoryId,
-            search: _search.text.trim(),
-            page: _page + 1,
-          );
+      final res = await ref.read(repositoryProvider).products(categoryId: _categoryId, search: _search.text.trim(), page: _page + 1);
       if (!mounted || gen != _generation) return;
       setState(() {
         if (_page == 0) _items.clear();
@@ -103,13 +99,33 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     }
   }
 
+  /// فتح شاشة الإضافة/التعديل، وإعادة تحميل القائمة لو اتغير حاجة.
+  Future<void> _openEditor(Product? p) async {
+    final changed = await context.push<bool>(p == null ? '/vendor/product/new' : '/vendor/product/edit', extra: p);
+    if (changed == true) _load(reset: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final categories = ref.watch(categoriesProvider).value ?? const <Category>[];
     final unavailable = _items.where((p) => !p.isAvailable).length;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('المنتجات')),
+      appBar: AppBar(
+        title: const Text('المنتجات'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => context.push('/vendor/categories'),
+            icon: const Icon(Icons.category_outlined),
+            label: const Text('الأقسام'),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openEditor(null),
+        icon: const Icon(Icons.add),
+        label: const Text('منتج جديد'),
+      ),
       body: Column(
         children: [
           Padding(
@@ -166,8 +182,10 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                 children: [
                   const Icon(Icons.info_outline, size: 16, color: AppColors.muted),
                   const SizedBox(width: 6),
-                  Text('$unavailable غير متوفر حاليًا ولا يظهر للعملاء كمتاح',
-                      style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                  Text(
+                    '$unavailable غير متوفر حاليًا ولا يظهر للعملاء كمتاح',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+                  ),
                 ],
               ),
             ),
@@ -183,14 +201,16 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
       if (_loading) return const LoadingView();
       return RefreshIndicator(
         onRefresh: () => _load(reset: true),
-        child: ListView(children: [
-          const SizedBox(height: 60),
-          EmptyView(
-            icon: Icons.fastfood_outlined,
-            title: _search.text.isEmpty ? 'لا توجد منتجات' : 'لا نتائج',
-            subtitle: 'إضافة المنتجات وتعديلها من لوحة التاجر على الويب.',
-          ),
-        ]),
+        child: ListView(
+          children: [
+            const SizedBox(height: 60),
+            EmptyView(
+              icon: Icons.fastfood_outlined,
+              title: _search.text.isEmpty ? 'لا توجد منتجات' : 'لا نتائج',
+              subtitle: 'اضغط "منتج جديد" لإضافة أول منتج.',
+            ),
+          ],
+        ),
       );
     }
 
@@ -202,49 +222,60 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
           return false;
         },
         child: ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
           itemCount: _items.length + (_hasMore ? 1 : 0),
           separatorBuilder: (_, _) => const SizedBox(height: 8),
           itemBuilder: (_, i) {
             if (i == _items.length) return const Padding(padding: EdgeInsets.all(16), child: LoadingView());
             final p = _items[i];
             return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Row(
-                  children: [
-                    Opacity(
-                      opacity: p.isAvailable ? 1 : 0.45,
-                      child: NetImage(p.image, width: 56, height: 56, icon: Icons.fastfood_outlined),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(p.name,
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => _openEditor(p),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Row(
+                    children: [
+                      Opacity(
+                        opacity: p.isAvailable ? 1 : 0.45,
+                        child: NetImage(p.image, width: 56, height: 56, icon: Icons.fastfood_outlined),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              p.name,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontWeight: FontWeight.w700, color: p.isAvailable ? AppColors.ink : AppColors.muted)),
-                          const SizedBox(height: 2),
-                          Text(
-                            p.isAvailable ? money(p.price) : 'غير متوفر',
-                            style: TextStyle(
-                              color: p.isAvailable ? AppColors.muted : AppColors.danger,
-                              fontWeight: p.isAvailable ? FontWeight.w500 : FontWeight.w700,
+                              style: TextStyle(fontWeight: FontWeight.w700, color: p.isAvailable ? AppColors.ink : AppColors.muted),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 2),
+                            if (!p.isActive)
+                              const Text(
+                                'مخفي من المنيو',
+                                style: TextStyle(color: AppColors.warning, fontWeight: FontWeight.w700),
+                              )
+                            else
+                              Text(
+                                p.isAvailable ? money(p.price) : 'غير متوفر',
+                                style: TextStyle(
+                                  color: p.isAvailable ? AppColors.muted : AppColors.danger,
+                                  fontWeight: p.isAvailable ? FontWeight.w500 : FontWeight.w700,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                    _saving.contains(p.id)
-                        ? const Padding(padding: EdgeInsets.all(14), child: Spinner(color: AppColors.primary))
-                        : Switch(
-                            value: p.isAvailable,
-                            activeThumbColor: AppColors.success,
-                            onChanged: (v) => _toggle(p, v),
-                          ),
-                  ],
+                      _saving.contains(p.id)
+                          ? const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: Spinner(color: AppColors.primary),
+                            )
+                          : Switch(value: p.isAvailable, activeThumbColor: AppColors.success, onChanged: (v) => _toggle(p, v)),
+                    ],
+                  ),
                 ),
               ),
             );

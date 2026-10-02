@@ -460,12 +460,61 @@ class StoreSummary {
 }
 
 class Category {
-  Category({required this.id, required this.name});
+  Category({required this.id, required this.name, this.isActive = true, this.sort = 0});
 
   final int id;
   final String name;
+  final bool isActive;
+  final int sort;
 
-  factory Category.fromJson(Map<String, dynamic> j) => Category(id: j['id'], name: j['name'] ?? '');
+  factory Category.fromJson(Map<String, dynamic> j) =>
+      Category(id: j['id'], name: j['name'] ?? '', isActive: j['is_active'] != false, sort: _in(j['sort']) ?? 0);
+}
+
+enum ProductUnit {
+  piece('قطعة'),
+  kg('كيلو'),
+  gram('جرام'),
+  liter('لتر'),
+  pack('عبوة'),
+  box('علبة');
+
+  const ProductUnit(this.label);
+  final String label;
+
+  static ProductUnit parse(String? s) => ProductUnit.values.firstWhere((u) => u.name == s, orElse: () => piece);
+}
+
+/// قيمة داخل مجموعة إضافات (قابلة للتعديل في شاشة المنتج).
+class OptionValueData {
+  OptionValueData({this.name = '', this.price = 0, this.isAvailable = true});
+
+  String name;
+  double price;
+  bool isAvailable;
+
+  factory OptionValueData.fromJson(Map<String, dynamic> j) =>
+      OptionValueData(name: j['name'] ?? '', price: _d(j['price']), isAvailable: j['is_available'] != false);
+}
+
+/// مجموعة إضافات: اختيار واحد (حجم) أو متعدد (إضافات).
+class ProductOptionData {
+  ProductOptionData({this.name = '', this.isMultiple = false, this.isRequired = false, this.maxSelections, List<OptionValueData>? values})
+      : values = values ?? [OptionValueData()];
+
+  String name;
+  bool isMultiple;
+  bool isRequired;
+  int? maxSelections;
+  List<OptionValueData> values;
+
+  factory ProductOptionData.fromJson(Map<String, dynamic> j) => ProductOptionData(
+        name: j['name'] ?? '',
+        isMultiple: j['type'] == 'multiple',
+        isRequired: j['is_required'] == true,
+        maxSelections: j['type'] == 'multiple' ? _in(j['max_selections']) : null,
+        values: _list(j['values']).map(OptionValueData.fromJson).toList(),
+      );
 }
 
 class Product {
@@ -473,40 +522,234 @@ class Product {
     required this.id,
     this.categoryId,
     required this.name,
+    this.description,
     this.image,
     required this.price,
-    required this.unitLabel,
+    this.comparePrice,
+    this.unit = ProductUnit.piece,
     required this.isAvailable,
+    this.isActive = true,
+    this.options = const [],
   });
 
   final int id;
   final int? categoryId;
   final String name;
+  final String? description;
   final String? image;
   final double price;
-  final String unitLabel;
+  final double? comparePrice;
+  final ProductUnit unit;
   final bool isAvailable;
+
+  /// غير النشط مخفي تمامًا عن العملاء (بخلاف "غير متوفر" المؤقت).
+  final bool isActive;
+  final List<Map<String, dynamic>> options;
+
+  String get unitLabel => unit.label;
+
+  List<ProductOptionData> get editableOptions => options.map(ProductOptionData.fromJson).toList();
 
   Product copyWith({required bool isAvailable}) => Product(
         id: id,
         categoryId: categoryId,
         name: name,
+        description: description,
         image: image,
         price: price,
-        unitLabel: unitLabel,
+        comparePrice: comparePrice,
+        unit: unit,
         isAvailable: isAvailable,
+        isActive: isActive,
+        options: options,
       );
 
   factory Product.fromJson(Map<String, dynamic> j) => Product(
         id: j['id'],
         categoryId: _in(j['category_id']),
         name: j['name'] ?? '',
+        description: j['description'],
         image: fixMediaUrl(j['image']),
         price: _d(j['price']),
-        unitLabel: j['unit_label'] ?? '',
+        comparePrice: _dn(j['compare_price']),
+        unit: ProductUnit.parse(j['unit']),
         isAvailable: j['is_available'] == true,
+        isActive: j['is_active'] != false,
+        options: _list(j['options']),
       );
 }
+
+/// مواعيد يوم واحد. day_of_week: 0 = الأحد ... 6 = السبت.
+class StoreHour {
+  StoreHour({required this.dayOfWeek, this.isClosed = false, this.opensAt = '09:00', this.closesAt = '23:00'});
+
+  static const dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+  final int dayOfWeek;
+  bool isClosed;
+  String opensAt;
+  String closesAt;
+
+  String get dayName => dayNames[dayOfWeek];
+
+  factory StoreHour.fromJson(Map<String, dynamic> j) => StoreHour(
+        dayOfWeek: _in(j['day_of_week']) ?? 0,
+        isClosed: j['is_closed'] == true,
+        opensAt: j['opens_at'] ?? '09:00',
+        closesAt: j['closes_at'] ?? '23:00',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'day_of_week': dayOfWeek,
+        'is_closed': isClosed,
+        'opens_at': isClosed ? null : opensAt,
+        'closes_at': isClosed ? null : closesAt,
+      };
+}
+
+// ---------------- التسويات ----------------
+
+class PaymentMethodOption {
+  PaymentMethodOption({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  factory PaymentMethodOption.fromJson(Map<String, dynamic> j) => PaymentMethodOption(value: j['value'] ?? '', label: j['label'] ?? '');
+}
+
+/// سائق وصّل طلبات كاش للمتجر — يمكن تسجيل استلام كاش منه.
+class FinanceDriver {
+  FinanceDriver({required this.id, required this.name, this.phone, required this.cashInHand, required this.suggestedAmount, required this.pendingAmount});
+
+  final int id;
+  final String name;
+  final String? phone;
+  final double cashInHand;
+
+  /// قيمة أصناف طلباته الكاش بعد آخر تسوية مؤكدة (بحد أقصى ما معه).
+  final double suggestedAmount;
+  final double pendingAmount;
+
+  double get available => (cashInHand - pendingAmount).clamp(0, double.infinity).toDouble();
+
+  factory FinanceDriver.fromJson(Map<String, dynamic> j) => FinanceDriver(
+        id: j['id'],
+        name: j['name'] ?? '',
+        phone: j['phone'],
+        cashInHand: _d(j['cash_in_hand']),
+        suggestedAmount: _d(j['suggested_amount']),
+        pendingAmount: _d(j['pending_amount']),
+      );
+}
+
+class FinanceSummary {
+  FinanceSummary({
+    required this.balance,
+    required this.pendingPayout,
+    required this.pendingPayment,
+    required this.pendingCount,
+    required this.methods,
+    required this.drivers,
+  });
+
+  /// موجب = المنصة مدينة للمتجر، سالب = على المتجر للمنصة.
+  final double balance;
+  final double pendingPayout;
+  final double pendingPayment;
+  final int pendingCount;
+  final List<PaymentMethodOption> methods;
+  final List<FinanceDriver> drivers;
+
+  double get payoutAvailable => (balance - pendingPayout).clamp(0, double.infinity).toDouble();
+  double get paymentDue => (-balance - pendingPayment).clamp(0, double.infinity).toDouble();
+
+  factory FinanceSummary.fromJson(Map<String, dynamic> j) => FinanceSummary(
+        balance: _d(j['balance']),
+        pendingPayout: _d(j['pending_payout']),
+        pendingPayment: _d(j['pending_payment']),
+        pendingCount: _in(j['pending_count']) ?? 0,
+        methods: _list(j['methods']).map(PaymentMethodOption.fromJson).toList(),
+        drivers: _list(j['drivers']).map(FinanceDriver.fromJson).toList(),
+      );
+}
+
+enum SettlementKind {
+  payoutRequest('payout_request', 'طلب صرف الرصيد'),
+  paymentReport('payment_report', 'تحويل للمنصة'),
+  driverCash('driver_cash', 'استلام كاش من سائق');
+
+  const SettlementKind(this.key, this.label);
+  final String key;
+  final String label;
+
+  static SettlementKind parse(String? s) => SettlementKind.values.firstWhere((k) => k.key == s, orElse: () => payoutRequest);
+}
+
+/// طلب تسوية (للتاجر) أو تسليم كاش بانتظار تأكيد السائق.
+class SettlementRequest {
+  SettlementRequest({
+    required this.id,
+    required this.kind,
+    required this.kindLabel,
+    required this.amount,
+    this.methodLabel,
+    this.reference,
+    this.notes,
+    this.receipt,
+    required this.status,
+    required this.statusLabel,
+    this.rejectionReason,
+    this.storeName,
+    this.storePhone,
+    this.driverName,
+    this.driverPhone,
+    this.createdAt,
+  });
+
+  final int id;
+  final SettlementKind kind;
+  final String kindLabel;
+  final double amount;
+  final String? methodLabel;
+  final String? reference;
+  final String? notes;
+  final String? receipt;
+  final String status;
+  final String statusLabel;
+  final String? rejectionReason;
+  final String? storeName;
+  final String? storePhone;
+  final String? driverName;
+  final String? driverPhone;
+  final DateTime? createdAt;
+
+  bool get isPending => status == 'pending';
+
+  factory SettlementRequest.fromJson(Map<String, dynamic> j) {
+    final store = (j['store'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final driver = (j['driver'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return SettlementRequest(
+      id: j['id'],
+      kind: SettlementKind.parse(j['kind']),
+      kindLabel: j['kind_label'] ?? '',
+      amount: _d(j['amount']),
+      methodLabel: j['method_label'],
+      reference: j['reference'],
+      notes: j['notes'],
+      receipt: fixMediaUrl(j['receipt']),
+      status: j['status'] ?? 'pending',
+      statusLabel: j['status_label'] ?? '',
+      rejectionReason: j['rejection_reason'],
+      storeName: store['name'],
+      storePhone: store['phone'],
+      driverName: driver['name'],
+      driverPhone: driver['phone'],
+      createdAt: _dt(j['created_at']),
+    );
+  }
+}
+
 
 class TopProduct {
   TopProduct({required this.name, required this.quantity, required this.revenue});

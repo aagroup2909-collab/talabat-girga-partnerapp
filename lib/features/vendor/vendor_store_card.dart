@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
@@ -40,10 +41,26 @@ class VendorStoreCard extends ConsumerWidget {
             ),
           ],
           const Divider(),
-          const ListTile(
-            leading: Icon(Icons.language),
-            title: Text('المنيو ومواعيد العمل'),
-            subtitle: Text('إضافة المنتجات وتعديلها من لوحة التاجر على الويب'),
+          ListTile(
+            leading: const Icon(Icons.account_balance_wallet_outlined),
+            title: const Text('الحساب والتسويات'),
+            subtitle: const Text('صرف الرصيد، التحويل للمنصة، والكاش من السائقين'),
+            trailing: const Icon(Icons.chevron_left),
+            onTap: () => context.push('/vendor/finance'),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.schedule),
+            title: const Text('مواعيد العمل'),
+            trailing: const Icon(Icons.chevron_left),
+            onTap: () => context.push('/vendor/hours'),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.category_outlined),
+            title: const Text('أقسام المنيو'),
+            trailing: const Icon(Icons.chevron_left),
+            onTap: () => context.push('/vendor/categories'),
           ),
         ],
       ),
