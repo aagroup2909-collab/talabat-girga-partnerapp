@@ -77,7 +77,15 @@ class TokenStore {
 
   String? get token => _prefs.getString(_key);
   Future<void> save(String token) => _prefs.setString(_key, token);
-  Future<void> clear() => _prefs.remove(_key);
+  Future<void> clear() async {
+    await _prefs.remove(_key);
+    await _prefs.remove(_storeKey);
+  }
+
+  /// التاجر صاحب أكثر من متجر: المتجر المختار يُرسل في هيدر X-Store-Id.
+  static const _storeKey = 'vendor_store_id';
+  int? get storeId => _prefs.getInt(_storeKey);
+  Future<void> saveStoreId(int id) => _prefs.setInt(_storeKey, id);
 }
 
 final tokenStoreProvider = Provider<TokenStore>((ref) => TokenStore(ref.watch(prefsProvider)));
@@ -95,6 +103,8 @@ final dioProvider = Provider<Dio>((ref) {
     onRequest: (options, handler) {
       final token = tokens.token;
       if (token != null) options.headers['Authorization'] = 'Bearer $token';
+      final storeId = tokens.storeId;
+      if (storeId != null && options.path.startsWith('/vendor/')) options.headers['X-Store-Id'] = '$storeId';
       handler.next(options);
     },
     onError: (e, handler) {

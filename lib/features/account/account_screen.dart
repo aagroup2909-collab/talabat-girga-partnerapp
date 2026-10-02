@@ -8,6 +8,7 @@ import '../../core/widgets.dart';
 import '../../data/repository.dart';
 import '../../state/auth.dart';
 import '../../state/driver.dart';
+import '../vendor/vendor_store_card.dart';
 
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
@@ -65,6 +66,10 @@ class AccountScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
+          if (user?.isVendor == true) ...[
+            const VendorStoreCard(),
+            const SizedBox(height: 16),
+          ],
           Card(
             child: Column(
               children: [

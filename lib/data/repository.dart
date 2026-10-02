@@ -134,6 +134,47 @@ class Repository {
 
   Future<Ticket> replyTicket(int id, String message) async =>
       Ticket.fromJson((await _api.post('/support/tickets/$id/messages', {'message': message}))['data']);
+
+  // ---------- التاجر: المتجر ----------
+  Future<List<StoreSummary>> vendorStores() async => _data(await _api.get('/vendor/stores')).map(StoreSummary.fromJson).toList();
+
+  Future<VendorStore> vendorStore() async => VendorStore.fromResponse((await _api.get('/vendor/store') as Map).cast<String, dynamic>());
+
+  Future<bool> setStoreOpen(bool open) async => (await _api.post('/vendor/store/open', {'is_open': open}))['is_open'] == true;
+
+  // ---------- التاجر: الطلبات ----------
+  /// [filter]: new | active | history
+  Future<Paged<Order>> vendorOrders(String filter, {int page = 1}) async =>
+      _paged(await _api.get('/vendor/orders', query: {'filter': filter, 'page': page}), Order.fromJson);
+
+  Future<Order> vendorOrder(int id) async => Order.fromJson((await _api.get('/vendor/orders/$id'))['data']);
+
+  Future<Order> acceptOrder(int id, int prepMinutes) async =>
+      Order.fromJson((await _api.post('/vendor/orders/$id/accept', {'prep_minutes': prepMinutes}))['data']);
+
+  /// رفض طلب جديد أو إلغاء طلب جارٍ (نفس المسار).
+  Future<Order> rejectOrder(int id, String reason) async =>
+      Order.fromJson((await _api.post('/vendor/orders/$id/reject', {'reason': reason}))['data']);
+
+  Future<Order> markPreparing(int id) async => Order.fromJson((await _api.post('/vendor/orders/$id/preparing'))['data']);
+
+  Future<Order> markReady(int id) async => Order.fromJson((await _api.post('/vendor/orders/$id/ready'))['data']);
+
+  // ---------- التاجر: المنتجات ----------
+  Future<List<Category>> categories() async => _data(await _api.get('/vendor/categories')).map(Category.fromJson).toList();
+
+  Future<Paged<Product>> products({int? categoryId, String? search, int page = 1}) async =>
+      _paged(await _api.get('/vendor/products', query: {'category_id': categoryId, 'search': search, 'page': page}), Product.fromJson);
+
+  Future<Product> setProductAvailable(int id, bool available) async =>
+      Product.fromJson((await _api.post('/vendor/products/$id/availability', {'is_available': available}))['data']);
+
+  // ---------- التاجر: التقارير ----------
+  Future<SalesSummary> salesSummary({required DateTime from, required DateTime to}) async {
+    String day(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final res = await _api.get('/vendor/reports/summary', query: {'from': day(from), 'to': day(to)});
+    return SalesSummary.fromJson((res as Map).cast<String, dynamic>());
+  }
 }
 
 final repositoryProvider = Provider<Repository>((ref) => Repository(ref.watch(apiProvider)));

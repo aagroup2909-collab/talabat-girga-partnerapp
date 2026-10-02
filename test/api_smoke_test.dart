@@ -50,6 +50,36 @@ void main() {
     expect(user.needsProfile, isFalse);
   }, skip: !local);
 
+  test('vendor endpoints parse', () async {
+    final c = await _container();
+    final repo = c.read(repositoryProvider);
+    await c.read(authProvider.notifier).signIn(await repo.login('01111111111', _password));
+
+    final store = await repo.vendorStore();
+    expect(store.name, isNotEmpty);
+    expect((await repo.vendorStores()).length, greaterThanOrEqualTo(1));
+
+    for (final filter in ['new', 'active', 'history']) {
+      await repo.vendorOrders(filter);
+    }
+    final history = await repo.vendorOrders('history');
+    if (history.items.isNotEmpty) {
+      final order = await repo.vendorOrder(history.items.first.id);
+      expect(order.items, isNotEmpty);
+    }
+
+    await repo.categories();
+    final products = await repo.products();
+    expect(products.items, isNotEmpty);
+    final p = products.items.first;
+    // تبديل التوفر ثم إرجاعه كما كان.
+    expect((await repo.setProductAvailable(p.id, !p.isAvailable)).isAvailable, !p.isAvailable);
+    expect((await repo.setProductAvailable(p.id, p.isAvailable)).isAvailable, p.isAvailable);
+
+    final now = DateTime.now();
+    await repo.salesSummary(from: DateTime(now.year, now.month), to: now);
+  }, skip: !local);
+
   test('wrong password and customer number give the server message in errors.phone', () async {
     final c = await _container();
     final repo = c.read(repositoryProvider);

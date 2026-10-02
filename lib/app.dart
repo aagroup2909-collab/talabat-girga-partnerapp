@@ -16,10 +16,14 @@ import 'features/driver/info/approval_screen.dart';
 import 'features/driver/info/driver_info_screen.dart';
 import 'features/driver/order/active_order_screen.dart';
 import 'features/support/support_screens.dart';
-import 'features/vendor/vendor_home_screen.dart';
+import 'features/vendor/orders/vendor_order_screen.dart';
+import 'features/vendor/orders/vendor_orders_screen.dart';
+import 'features/vendor/products/products_screen.dart';
+import 'features/vendor/sales/sales_screen.dart';
 import 'models/models.dart';
 import 'state/auth.dart';
 import 'state/driver.dart';
+import 'state/vendor.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
 
@@ -76,7 +80,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       // ---------- التاجر ----------
-      GoRoute(path: '/vendor', builder: (_, _) => const VendorHomeScreen()),
+      StatefulShellRoute.indexedStack(
+        builder: (_, _, shell) => _VendorShell(shell: shell),
+        branches: [
+          StatefulShellBranch(routes: [GoRoute(path: '/vendor', builder: (_, _) => const VendorOrdersScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/vendor/products', builder: (_, _) => const ProductsScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/vendor/sales', builder: (_, _) => const SalesScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/vendor/account', builder: (_, _) => const AccountScreen())]),
+        ],
+      ),
+      GoRoute(
+        path: '/vendor/order/:id',
+        builder: (_, s) => VendorOrderScreen(orderId: int.parse(s.pathParameters['id']!)),
+      ),
 
       // ---------- مشترك ----------
       GoRoute(path: '/change-password', builder: (_, _) => const ChangePasswordScreen()),
@@ -148,6 +164,67 @@ class _DriverShellState extends ConsumerState<_DriverShell> with WidgetsBindingO
           NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet), label: 'الأرباح'),
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'السجل'),
           NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'حسابي'),
+        ],
+      ),
+    );
+  }
+}
+
+/// الهيكل الرئيسي للتاجر: يبقي مراقب الطلبات الجديدة شغالًا (رنين) في كل التبويبات.
+class _VendorShell extends ConsumerStatefulWidget {
+  const _VendorShell({required this.shell});
+
+  final StatefulNavigationShell shell;
+
+  @override
+  ConsumerState<_VendorShell> createState() => _VendorShellState();
+}
+
+class _VendorShellState extends ConsumerState<_VendorShell> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(newOrdersProvider.notifier).refresh();
+      ref.invalidate(vendorActiveOrdersProvider);
+      ref.invalidate(vendorStoreProvider);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final newCount = ref.watch(newOrdersProvider.select((s) => s.orders.length));
+    // طلب جديد وأنت في تبويب آخر → ارجع لتبويب الطلبات.
+    ref.listen(newOrdersProvider.select((s) => s.orders.length), (prev, next) {
+      if (next > (prev ?? 0) && widget.shell.currentIndex != 0) widget.shell.goBranch(0);
+    });
+
+    final shell = widget.shell;
+    return Scaffold(
+      body: shell,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: shell.currentIndex,
+        onDestinationSelected: (i) => shell.goBranch(i, initialLocation: i == shell.currentIndex),
+        destinations: [
+          NavigationDestination(
+            icon: Badge(isLabelVisible: newCount > 0, label: Text('$newCount'), child: const Icon(Icons.receipt_long_outlined)),
+            selectedIcon: Badge(isLabelVisible: newCount > 0, label: Text('$newCount'), child: const Icon(Icons.receipt_long)),
+            label: 'الطلبات',
+          ),
+          const NavigationDestination(icon: Icon(Icons.fastfood_outlined), selectedIcon: Icon(Icons.fastfood), label: 'المنتجات'),
+          const NavigationDestination(icon: Icon(Icons.bar_chart_outlined), selectedIcon: Icon(Icons.bar_chart), label: 'المبيعات'),
+          const NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'حسابي'),
         ],
       ),
     );

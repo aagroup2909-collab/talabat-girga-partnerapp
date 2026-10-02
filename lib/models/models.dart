@@ -275,7 +275,16 @@ class Order {
     this.deliveryPoint,
     this.distanceKm,
     required this.items,
+    this.subtotal = 0,
+    this.deliveryFee = 0,
+    this.discount = 0,
     required this.total,
+    this.commissionAmount = 0,
+    this.storeNet = 0,
+    this.prepMinutes,
+    this.driver,
+    this.isLate = false,
+    this.estimatedDeliveryAt,
     required this.driverEarning,
     required this.collectAmount,
     required this.paymentMethod,
@@ -296,7 +305,20 @@ class Order {
   final LatLng? deliveryPoint;
   final double? distanceKm;
   final List<OrderItem> items;
+  final double subtotal;
+  final double deliveryFee;
+  final double discount;
   final double total;
+
+  /// للتاجر: عمولة المنصة وصافي المتجر.
+  final double commissionAmount;
+  final double storeNet;
+  final int? prepMinutes;
+
+  /// السائق المسند (يظهر للتاجر).
+  final OrderDriver? driver;
+  final bool isLate;
+  final DateTime? estimatedDeliveryAt;
   final double driverEarning;
   final double collectAmount;
   final String paymentMethod;
@@ -308,6 +330,10 @@ class Order {
   DateTime? get arrivedAt => timeline['driver_arrived_at'];
   DateTime? get pickedUpAt => timeline['picked_up_at'];
   DateTime? get deliveredAt => timeline['delivered_at'];
+  DateTime? get cancelledAt => timeline['cancelled_at'];
+  DateTime? get driverArrivedAt => timeline['driver_arrived_at'];
+
+  int get itemsCount => items.fold(0, (sum, i) => sum + i.quantity.ceil());
 
   /// خطوة السائق الحالية: 0 = في الطريق للمتجر، 1 = في المتجر، 2 = في الطريق للعميل، 3 = انتهى.
   int get driverStep {
@@ -334,7 +360,16 @@ class Order {
       deliveryPoint: _point(delivery['lat'], delivery['lng']),
       distanceKm: _dn(delivery['distance_km']),
       items: _list(j['items']).map(OrderItem.fromJson).toList(),
+      subtotal: _d(j['subtotal']),
+      deliveryFee: _d(j['delivery_fee']),
+      discount: _d(j['discount']),
       total: _d(j['total']),
+      commissionAmount: _d(j['commission_amount']),
+      storeNet: _d(j['store_net']),
+      prepMinutes: _in(j['prep_minutes']),
+      driver: j['driver'] is Map ? OrderDriver.fromJson((j['driver'] as Map).cast<String, dynamic>()) : null,
+      isLate: j['is_late'] == true,
+      estimatedDeliveryAt: _dt(j['estimated_delivery_at']),
       driverEarning: _d(j['driver_earning']),
       collectAmount: _d(j['collect_amount']),
       paymentMethod: j['payment_method'] ?? 'cash',
@@ -344,6 +379,179 @@ class Order {
       createdAt: _dt(j['created_at']),
     );
   }
+}
+
+class OrderDriver {
+  OrderDriver({this.name, this.phone, this.vehicleLabel, this.plate});
+
+  final String? name;
+  final String? phone;
+  final String? vehicleLabel;
+  final String? plate;
+
+  factory OrderDriver.fromJson(Map<String, dynamic> j) =>
+      OrderDriver(name: j['name'], phone: j['phone'], vehicleLabel: j['vehicle_type_label'], plate: j['vehicle_plate']);
+}
+
+// ---------------- التاجر ----------------
+
+/// متجر التاجر كما يرجع من GET /vendor/store.
+class VendorStore {
+  VendorStore({
+    required this.id,
+    required this.name,
+    this.logo,
+    this.phone,
+    this.address,
+    this.typeName,
+    required this.isOpen,
+    required this.isOpenNow,
+    required this.approvalStatus,
+    required this.approvalLabel,
+    required this.avgPrepMinutes,
+  });
+
+  final int id;
+  final String name;
+  final String? logo;
+  final String? phone;
+  final String? address;
+  final String? typeName;
+
+  /// زر الفتح/الإغلاق اليدوي.
+  final bool isOpen;
+
+  /// مفتوح فعلًا الآن (الزر + مواعيد العمل).
+  final bool isOpenNow;
+  final String approvalStatus;
+  final String approvalLabel;
+  final int avgPrepMinutes;
+
+  bool get isApproved => approvalStatus == 'approved';
+
+  /// [j] هو رد GET /vendor/store كاملًا: { data, approval_status, is_open, ... }.
+  factory VendorStore.fromResponse(Map<String, dynamic> j) {
+    final d = (j['data'] as Map).cast<String, dynamic>();
+    return VendorStore(
+      id: d['id'],
+      name: d['name'] ?? '',
+      logo: fixMediaUrl(d['logo']),
+      phone: d['phone'],
+      address: d['address'],
+      typeName: (d['store_type'] as Map?)?['name'],
+      isOpen: j['is_open'] == true,
+      isOpenNow: d['is_open_now'] == true,
+      approvalStatus: j['approval_status'] ?? 'approved',
+      approvalLabel: j['approval_status_label'] ?? '',
+      avgPrepMinutes: _in(d['avg_prep_minutes']) ?? 20,
+    );
+  }
+}
+
+/// متجر في قائمة متاجر التاجر (لو عنده أكثر من متجر).
+class StoreSummary {
+  StoreSummary({required this.id, required this.name, this.logo});
+
+  final int id;
+  final String name;
+  final String? logo;
+
+  factory StoreSummary.fromJson(Map<String, dynamic> j) => StoreSummary(id: j['id'], name: j['name'] ?? '', logo: fixMediaUrl(j['logo']));
+}
+
+class Category {
+  Category({required this.id, required this.name});
+
+  final int id;
+  final String name;
+
+  factory Category.fromJson(Map<String, dynamic> j) => Category(id: j['id'], name: j['name'] ?? '');
+}
+
+class Product {
+  Product({
+    required this.id,
+    this.categoryId,
+    required this.name,
+    this.image,
+    required this.price,
+    required this.unitLabel,
+    required this.isAvailable,
+  });
+
+  final int id;
+  final int? categoryId;
+  final String name;
+  final String? image;
+  final double price;
+  final String unitLabel;
+  final bool isAvailable;
+
+  Product copyWith({required bool isAvailable}) => Product(
+        id: id,
+        categoryId: categoryId,
+        name: name,
+        image: image,
+        price: price,
+        unitLabel: unitLabel,
+        isAvailable: isAvailable,
+      );
+
+  factory Product.fromJson(Map<String, dynamic> j) => Product(
+        id: j['id'],
+        categoryId: _in(j['category_id']),
+        name: j['name'] ?? '',
+        image: fixMediaUrl(j['image']),
+        price: _d(j['price']),
+        unitLabel: j['unit_label'] ?? '',
+        isAvailable: j['is_available'] == true,
+      );
+}
+
+class TopProduct {
+  TopProduct({required this.name, required this.quantity, required this.revenue});
+
+  final String name;
+  final double quantity;
+  final double revenue;
+
+  factory TopProduct.fromJson(Map<String, dynamic> j) =>
+      TopProduct(name: j['name'] ?? '', quantity: _d(j['quantity']), revenue: _d(j['revenue']));
+}
+
+class SalesSummary {
+  SalesSummary({
+    required this.ordersCount,
+    required this.deliveredCount,
+    required this.cancelledCount,
+    required this.sales,
+    required this.commission,
+    required this.net,
+    required this.balance,
+    required this.topProducts,
+  });
+
+  final int ordersCount;
+  final int deliveredCount;
+  final int cancelledCount;
+  final double sales;
+  final double commission;
+  final double net;
+
+  /// موجب = المنصة مدينة للمتجر، سالب = على المتجر توريده.
+  final double balance;
+  final List<TopProduct> topProducts;
+
+  factory SalesSummary.fromJson(Map<String, dynamic> j) => SalesSummary(
+        ordersCount: _in(j['orders_count']) ?? 0,
+        deliveredCount: _in(j['delivered_count']) ?? 0,
+        cancelledCount: _in(j['cancelled_count']) ?? 0,
+        sales: _d(j['sales']),
+        commission: _d(j['commission']),
+        net: _d(j['net']),
+        balance: _d(j['balance']),
+        topProducts: _list(j['top_products']).map(TopProduct.fromJson).toList(),
+      );
 }
 
 class Period {
